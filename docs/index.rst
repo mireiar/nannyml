@@ -25,6 +25,7 @@ Welcome to NannyML's documentation!
    quick
    guides
    deep_dive
+   examples
    glossary
    Technical reference <nannyml/modules>
 

@@ -118,4 +118,5 @@ docs/_build
 docs/nannyml
 
 # images created from doc notebooks
-docs/examples/*.svg
+docs/notebooks/*.svg
+docs/notebooks/*/*.svg
