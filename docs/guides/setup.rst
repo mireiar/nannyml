@@ -81,15 +81,26 @@ using the given inputs and yielding the resulting prediction. See :term:`Timesta
                 - *ISO 8601*, e.g. ``2021-10-13T08:47:23Z``
                 - *Unix-epoch* in units of seconds, e.g. ``1513393355``
 
+Predicted probability
+---------------------
+
+The score or probability that is emitted by the model, most likely a float.
+
+.. warning::
+    Either this or the *prediction* should be set for the metadata to be complete.
+
 
 Prediction
 ----------
 
-The actual prediction the model makes, either a score or a probability.
+The predicted label, retrieved by interpreting (thresholding) the prediction scores or probabilities.
 
 .. warning::
-    The *prediction* should contain the actual score or the predicted probability,
-    not the predicted label (e.g. ``0`` or ``1``).
+    Either this property or the *predicted_probability* should be set for the metadata to be complete.
+
+.. warning::
+    In case of binary prediction the *prediction values* should be either ``0`` or ``1`` for all functionality to work
+    as intended. NannyML will interpret ``1`` as the *positive label*.
 
 Target
 ------
@@ -131,8 +142,10 @@ This means that for the example **work_from_home** case:
        ``transport_mode``
 
        ``industry``
-   * - Prediction
+   * - Predicted probability
      - ``y_pred_proba``
+   * - Prediction
+     - ``np.NaN``
    * - Ground truth.
      - ``work_home_actual``
    * - Identifier
@@ -176,7 +189,8 @@ The metadata can then be printed using the :meth:`nannyml.metadata.ModelMetadata
     Timestamp column          timestamp
     Partition column          partition
     Prediction column         y_pred_proba
-    Ground truth column       ~ UNKNOWN ~
+    Prediction column         ~ UNKNOWN ~
+    Target column             ~ UNKNOWN ~
 
     Features
 
@@ -184,7 +198,7 @@ The metadata can then be printed using the :meth:`nannyml.metadata.ModelMetadata
     distance_from_office        distance_from_office        continuous      extracted feature: distance_from_office
     salary_range                salary_range                categorical     extracted feature: salary_range
     gas_price_per_litre         gas_price_per_litre         continuous      extracted feature: gas_price_per_litre
-    public_transportation_cost public_transportation_cost   continuous      extracted feature: public_transportation_cost
+    public_transportation_cost  public_transportation_cost  continuous      extracted feature: public_transportation_cost
     wfh_prev_workday            wfh_prev_workday            categorical     extracted feature: wfh_prev_workday
     workday                     workday                     categorical     extracted feature: workday
     tenure                      tenure                      continuous      extracted feature: tenure
@@ -237,8 +251,10 @@ These metadata properties follow simple naming conventions for discovery:
      - ``column_name in ['id', 'ident', 'identity', 'identifier', 'uid', 'uuid']``
    * - ``timestamp_column_name``
      - ``column_name in ['date', 'timestamp', 'ts', 'date', 'time']``
+   * - ``predicted_probability_column_name``
+     - ``column_name in ['y_pred_proba']``
    * - ``prediction_column_name``
-     - ``column_name in ['p', 'pred', 'prediction', 'out', 'output', 'y_pred', 'y_pred_proba']``
+     - ``column_name in ['p', 'pred', 'prediction', 'out', 'output', 'y_pred']``
    * - ``target_column_name``
      - ``column_name in ['target', 'ground_truth', 'actual', 'actuals']``
    * - ``partition_column_name``

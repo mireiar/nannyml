@@ -1,6 +1,6 @@
-=======
+========
 NannyML
-=======
+========
 
 .. image:: https://img.shields.io/pypi/v/nannyml.svg
     :target: https://pypi.org/project/nannyml/

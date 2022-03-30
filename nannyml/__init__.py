@@ -32,7 +32,7 @@ __email__ = 'niels@nannyml.com'
 # Dev branch marker is: 'X.Y.dev' or 'X.Y.devN' where N is an integer.
 # 'X.Y.dev0' is the canonical version of 'X.Y.dev'
 #
-__version__ = '0.1.0'
+__version__ = '0.2.1'
 
 import logging
 
@@ -43,6 +43,7 @@ from .drift import (
     AlertCountRanking,
     BaseDriftCalculator,
     DataReconstructionDriftCalculator,
+    DataReconstructionDriftCalculatorResult,
     DriftCalculator,
     Ranker,
     Ranking,
@@ -50,7 +51,7 @@ from .drift import (
 )
 from .exceptions import ChunkerException, InvalidArgumentsException, MissingMetadataException
 from .metadata import Feature, FeatureType, ModelMetadata, extract_metadata
+from .performance_calculation import PerformanceCalculator
 from .performance_estimation import CBPE, BasePerformanceEstimator
-from .plots import DriftPlots, PerformancePlots
 
 logger = logging.getLogger(__name__)

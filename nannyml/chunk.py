@@ -14,17 +14,10 @@ from typing import List
 import numpy as np
 import pandas as pd
 from dateutil.parser import ParserError  # type: ignore
-from sklearn.metrics import roc_auc_score
-from sklearn.preprocessing import PolynomialFeatures
+from pandas import Period
 
 from nannyml.exceptions import ChunkerException, InvalidArgumentsException, MissingMetadataException
-from nannyml.metadata import (
-    NML_METADATA_PARTITION_COLUMN_NAME,
-    NML_METADATA_PREDICTION_COLUMN_NAME,
-    NML_METADATA_REFERENCE_PARTITION_NAME,
-    NML_METADATA_TARGET_COLUMN_NAME,
-    NML_METADATA_TIMESTAMP_COLUMN_NAME,
-)
+from nannyml.metadata import NML_METADATA_PARTITION_COLUMN_NAME, NML_METADATA_TIMESTAMP_COLUMN_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +25,14 @@ logger = logging.getLogger(__name__)
 class Chunk:
     """A subset of data that acts as a logical unit during calculations."""
 
-    def __init__(self, key: str, data: pd.DataFrame, partition: str = None):
+    def __init__(
+        self,
+        key: str,
+        data: pd.DataFrame,
+        start_datetime: datetime = datetime.max,
+        end_datetime: datetime = datetime.max,
+        partition: str = None,
+    ):
         """Creates a new chunk.
 
         Parameters
@@ -40,7 +40,11 @@ class Chunk:
         key : str, required.
             A value describing what data is wrapped in this chunk.
         data : DataFrame, required
-            The data to be contained within the chunk
+            The data to be contained within the chunk.
+        start_datetime: datetime
+            The starting point in time for this chunk.
+        end_datetime: datetime
+            The end point in time for this chunk.
         partition : string, optional
             The 'partition' this chunk belongs to, for example 'reference' or 'analysis'.
         """
@@ -50,8 +54,8 @@ class Chunk:
 
         self.is_transition: bool = False
 
-        self.start_datetime: datetime = datetime.max
-        self.end_datetime: datetime = datetime.max
+        self.start_datetime = start_datetime
+        self.end_datetime = end_datetime
         self.start_index: int = 0
         self.end_index: int = 0
 
@@ -82,50 +86,6 @@ class Chunk:
         return self.data.shape[0]
 
 
-def _minimum_chunk_size(
-    data: pd.DataFrame,
-    partition_column_name: str = NML_METADATA_PARTITION_COLUMN_NAME,
-    prediction_column_name: str = NML_METADATA_PREDICTION_COLUMN_NAME,
-    target_column_name: str = NML_METADATA_TARGET_COLUMN_NAME,
-    lower_threshold: int = 300,
-) -> int:
-    def get_prediction(X):
-        # model data
-        h_coefs = [
-            0.00000000e00,
-            -3.46098897e04,
-            2.65871679e04,
-            3.46098897e04,
-            2.29602791e04,
-            -4.96886646e04,
-            -1.12777343e-10,
-            -2.29602791e04,
-            3.13775672e-10,
-            2.48718826e04,
-        ]
-        h_intercept = 1421.9522967076875
-        transformation = PolynomialFeatures(3)
-        #
-
-        inputs = np.asarray(X)
-        transformed_inputs = transformation.fit_transform(inputs)
-        prediction = np.dot(transformed_inputs, h_coefs)[0] + h_intercept
-
-        return prediction
-
-    class_balance = np.mean(data[target_column_name])
-    auc = roc_auc_score(
-        data.loc[data[partition_column_name] == NML_METADATA_REFERENCE_PARTITION_NAME, target_column_name],
-        data.loc[data[partition_column_name] == NML_METADATA_REFERENCE_PARTITION_NAME, prediction_column_name],
-    )
-    chunk_size = get_prediction([[class_balance, auc]])
-    chunk_size = np.maximum(lower_threshold, chunk_size)
-    chunk_size = np.round(chunk_size, -2)
-    minimum_chunk_size = int(chunk_size)
-
-    return minimum_chunk_size
-
-
 def _get_partition(c: Chunk, partition_column_name: str = NML_METADATA_PARTITION_COLUMN_NAME):
     if partition_column_name not in c.data.columns:
         raise MissingMetadataException(
@@ -145,18 +105,6 @@ def _is_transition(c: Chunk, partition_column_name: str = NML_METADATA_PARTITION
         return False
 
 
-def _get_boundary_timestamps(c: Chunk, timestamp_column_name: str = NML_METADATA_TIMESTAMP_COLUMN_NAME):
-    if timestamp_column_name not in c.data.columns:
-        raise MissingMetadataException(
-            f"missing timestamp column '{NML_METADATA_TIMESTAMP_COLUMN_NAME}'." "Please provide valid metadata."
-        )
-
-    min_date = pd.to_datetime(c.data[timestamp_column_name].min()).replace(hour=0, minute=0, second=0)
-    max_date = pd.to_datetime(c.data[timestamp_column_name].max()).replace(hour=23, minute=59, second=59)
-
-    return min_date, max_date
-
-
 def _get_boundary_indices(c: Chunk):
     return c.data.index.min(), c.data.index.max()
 
@@ -169,11 +117,11 @@ class Chunker(abc.ABC):
     or a preferred number of Chunks.
     """
 
-    def __init__(self, minimum_chunk_size: int):
+    def __init__(self):
         """Creates a new Chunker. Not used directly."""
-        self.minimum_chunk_size = minimum_chunk_size
+        pass
 
-    def split(self, data: pd.DataFrame, columns=None) -> List[Chunk]:
+    def split(self, data: pd.DataFrame, columns=None, minimum_chunk_size: int = None) -> List[Chunk]:
         """Splits a given data frame into a list of chunks.
 
         This method provides a uniform interface across Chunker implementations to keep them interchangeable.
@@ -190,8 +138,12 @@ class Chunker(abc.ABC):
         ----------
         data: DataFrame
             The data to be split into chunks
-        columns: List[str]
+        columns: List[str], default=None
             A list of columns to be included in the resulting chunk data. Unlisted columns will be dropped.
+        minimum_chunk_size: int, default=None
+            The recommended minimum number of observations a :class:`~nannyml.chunk.Chunk` should hold.
+            When specified a warning will appear if the split results in underpopulated chunks.
+            When not specified there will be no checks for underpopulated chunks.
 
         Returns
         -------
@@ -199,8 +151,13 @@ class Chunker(abc.ABC):
             The list of chunks
 
         """
+        if NML_METADATA_TIMESTAMP_COLUMN_NAME not in data.columns:
+            raise MissingMetadataException(
+                f"missing timestamp column '{NML_METADATA_TIMESTAMP_COLUMN_NAME}'." "Please provide valid metadata."
+            )
+
         try:
-            chunks = self._split(data)
+            chunks = self._split(data, minimum_chunk_size)
         except Exception as exc:
             raise ChunkerException(f"could not split data into chunks: {exc}")
 
@@ -210,7 +167,6 @@ class Chunker(abc.ABC):
 
             c.partition = _get_partition(c)
 
-            c.start_datetime, c.end_datetime = _get_boundary_timestamps(c)
             c.start_index, c.end_index = _get_boundary_indices(c)
 
             if columns is not None:
@@ -224,22 +180,23 @@ class Chunker(abc.ABC):
             )
 
         # check if all chunk sizes > minimal chunk size. If not, render a warning message.
-        underpopulated_chunks = [c for c in chunks if len(c) < self.minimum_chunk_size]
+        if minimum_chunk_size:
+            underpopulated_chunks = [c for c in chunks if len(c) < minimum_chunk_size]
 
-        if len(underpopulated_chunks) > 0:
-            # TODO wording
-            warnings.warn(
-                f'The resulting list of chunks contains {len(underpopulated_chunks)} underpopulated chunks. '
-                'They contain too few records to be statistically relevant and might negatively influence '
-                'the quality of calculations. '
-                'Please consider splitting your data in a different way or continue at your own risk.'
-            )
+            if len(underpopulated_chunks) > 0:
+                # TODO wording
+                warnings.warn(
+                    f'The resulting list of chunks contains {len(underpopulated_chunks)} underpopulated chunks. '
+                    'They contain too few records to be statistically robust and might negatively influence '
+                    'the quality of calculations. '
+                    'Please consider splitting your data in a different way or continue at your own risk.'
+                )
 
         return chunks
 
     # TODO wording
     @abc.abstractmethod
-    def _split(self, data: pd.DataFrame) -> List[Chunk]:
+    def _split(self, data: pd.DataFrame, minimum_chunk_size: int = None) -> List[Chunk]:
         """Splits the DataFrame into chunks.
 
         Abstract method, to be implemented within inheriting classes.
@@ -248,6 +205,8 @@ class Chunker(abc.ABC):
         ----------
         data: pandas.DataFrame
             The full dataset that should be split into Chunks
+        minimum_chunk_size: int, default=None
+            The recommended minimum number of observations a :class:`~nannyml.chunk.Chunk` should hold.
 
         Returns
         -------
@@ -293,7 +252,6 @@ class PeriodBasedChunker(Chunker):
 
     def __init__(
         self,
-        minimum_chunk_size: int,
         date_column_name: str = NML_METADATA_TIMESTAMP_COLUMN_NAME,
         offset: str = 'W',
     ):
@@ -301,9 +259,6 @@ class PeriodBasedChunker(Chunker):
 
         Parameters
         ----------
-        minimum_chunk_size: int
-            The minimum amount of observations a Chunk should hold.
-            Usually intelligently determined by using the `_minimum_chunk_size` function.
         date_column_name: string
             The name of the column in the DataFrame that contains the date used for chunking.
             Defaults to the metadata timestamp column added by the `ModelMetadata.extract_metadata` function.
@@ -316,18 +271,23 @@ class PeriodBasedChunker(Chunker):
         -------
         chunker: a PeriodBasedChunker instance used to split data into time-based Chunks.
         """
-        super().__init__(minimum_chunk_size)
+        super().__init__()
 
         self.date_column_name = date_column_name
         self.offset = offset
 
-    def _split(self, data: pd.DataFrame) -> List[Chunk]:
+    def _split(self, data: pd.DataFrame, minimum_chunk_size: int = None) -> List[Chunk]:
         chunks = []
         date_column_name = self.date_column_name or self.date_column.name  # type: ignore
         try:
             grouped_data = data.groupby(pd.to_datetime(data[date_column_name]).dt.to_period(self.offset))
+
+            k: Period
             for k in grouped_data.groups.keys():
-                chunks.append(Chunk(key=str(k), data=grouped_data.get_group(k)))
+                chunk = Chunk(
+                    key=str(k), data=grouped_data.get_group(k), start_datetime=k.start_time, end_datetime=k.end_time
+                )
+                chunks.append(chunk)
         except KeyError:
             raise ChunkerException(f"could not find date_column '{date_column_name}' in given data")
 
@@ -360,26 +320,23 @@ class SizeBasedChunker(Chunker):
 
     """
 
-    def __init__(self, chunk_size: int, minimum_chunk_size: int):
+    def __init__(self, chunk_size: int):
         """Create a new SizeBasedChunker.
 
         Parameters
         ----------
         chunk_size: int
             The preferred size of the resulting Chunks, i.e. the number of observations in each Chunk.
-        minimum_chunk_size: int
-            The minimum amount of observations a Chunk should hold.
-            Usually intelligently determined by using the `_minimum_chunk_size` function.
 
         Returns
         -------
         chunker: a size-based instance used to split data into Chunks of a constant size.
 
         """
-        super().__init__(minimum_chunk_size)
+        super().__init__()
 
         # TODO wording
-        if not isinstance(chunk_size, int):
+        if not isinstance(chunk_size, (int, np.int64)):
             raise InvalidArgumentsException(
                 f"given chunk_size is of type {type(chunk_size)} but should be an int."
                 f"Please provide an integer as a chunk size"
@@ -394,10 +351,21 @@ class SizeBasedChunker(Chunker):
 
         self.chunk_size = chunk_size
 
-    def _split(self, data: pd.DataFrame) -> List[Chunk]:
+    def _split(self, data: pd.DataFrame, minimum_chunk_size: int = None) -> List[Chunk]:
+        def _create_chunk(index: int, data: pd.DataFrame, chunk_size: int) -> Chunk:
+            chunk_data = data.loc[index : index + chunk_size - 1, :]
+            min_date = pd.to_datetime(chunk_data[NML_METADATA_TIMESTAMP_COLUMN_NAME].min())
+            max_date = pd.to_datetime(chunk_data[NML_METADATA_TIMESTAMP_COLUMN_NAME].max())
+            return Chunk(
+                key=f'[{index}:{index + self.chunk_size - 1}]',
+                data=chunk_data,
+                start_datetime=min_date,
+                end_datetime=max_date,
+            )
+
         data = data.copy().reset_index()
         chunks = [
-            Chunk(key=f'[{i}:{i + self.chunk_size - 1}]', data=data.loc[i : i + self.chunk_size - 1, :])
+            _create_chunk(index=i, data=data, chunk_size=self.chunk_size)
             for i in range(0, len(data), self.chunk_size)
             if i + self.chunk_size - 1 < len(data)
         ]
@@ -417,7 +385,7 @@ class CountBasedChunker(Chunker):
 
     """
 
-    def __init__(self, chunk_count: int, minimum_chunk_size: int):
+    def __init__(self, chunk_count: int):
         """Creates a new CountBasedChunker.
 
         It will calculate the amount of observations per chunk based on the given chunk count.
@@ -427,16 +395,13 @@ class CountBasedChunker(Chunker):
         ----------
         chunk_count: int
             The amount of chunks to split the data in.
-        minimum_chunk_size: int
-            The minimum amount of observations a Chunk should hold.
-            Usually intelligently determined by using the `_minimum_chunk_size` function.
 
         Returns
         -------
         chunker: CountBasedChunker
 
         """
-        super().__init__(minimum_chunk_size)
+        super().__init__()
 
         # TODO wording
         if not isinstance(chunk_count, int):
@@ -454,18 +419,14 @@ class CountBasedChunker(Chunker):
 
         self.chunk_count = chunk_count
 
-    def _split(self, data: pd.DataFrame) -> List[Chunk]:
+    def _split(self, data: pd.DataFrame, minimum_chunk_size: int = None) -> List[Chunk]:
         if data.shape[0] == 0:
             return []
 
         data = data.copy().reset_index()
 
         chunk_size = data.shape[0] // self.chunk_count
-        chunks = [
-            Chunk(key=f'[{i}:{i + chunk_size - 1}]', data=data.loc[i : i + chunk_size - 1, :])
-            for i in range(0, len(data), chunk_size)
-            if i + chunk_size - 1 < len(data)
-        ]
+        chunks = SizeBasedChunker(chunk_size=chunk_size).split(data=data, minimum_chunk_size=minimum_chunk_size)
         return chunks
 
 
@@ -480,18 +441,13 @@ class DefaultChunker(Chunker):
     >>> chunks = chunker.split(data=df)
     """
 
-    def __init__(self, minimum_chunk_size: int):
-        """Creates a new DefaultChunker.
+    def __init__(self):
+        """Creates a new DefaultChunker."""
+        super(DefaultChunker, self).__init__()
 
-        Parameters
-        ----------
-        minimum_chunk_size: int
-            The minimum amount of observations a Chunk should hold.
-            Usually intelligently determined by using the `_minimum_chunk_size` function.
-        """
-        super(DefaultChunker, self).__init__(minimum_chunk_size)
-
-    def _split(self, data: pd.DataFrame) -> List[Chunk]:
-        chunk_size = self.minimum_chunk_size * 3
-        chunks = SizeBasedChunker(chunk_size, self.minimum_chunk_size).split(data)
+    def _split(self, data: pd.DataFrame, minimum_chunk_size: int = None) -> List[Chunk]:
+        if not minimum_chunk_size:
+            raise InvalidArgumentsException("could not use DefaultChunker: 'minimum_chunk_size' should be specified")
+        chunk_size = minimum_chunk_size * 3
+        chunks = SizeBasedChunker(chunk_size).split(data, minimum_chunk_size=minimum_chunk_size)
         return chunks

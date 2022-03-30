@@ -17,9 +17,6 @@ NannyML provides a sample synthetic dataset that can be used for testing purpose
     >>> import nannyml as nml
     >>> reference, analysis, analysis_target = nml.load_synthetic_sample()
     >>> reference.head()
-    >>> # Let's use a chunk size of 5000 data points to create our drift statistics
-    >>> chunk_size = 5000
-    >>> data = pd.concat([reference, analysis], ignore_index=True)
 
 +----+------------------------+----------------+-----------------------+------------------------------+--------------------+-----------+----------+--------------+--------------------+---------------------+----------------+-------------+
 |    |   distance_from_office | salary_range   |   gas_price_per_litre |   public_transportation_cost | wfh_prev_workday   | workday   |   tenure |   identifier |   work_home_actual | timestamp           |   y_pred_proba | partition   |
@@ -41,12 +38,15 @@ working from home is included in the ``y_pred_proba`` column. The model inputs a
 ``salary_range``, ``gas_price_per_litre``, ``public_transportation_cost``, ``wfh_prev_workday``, ``workday`` and
 ``tenure``. ``identifier`` is the :term:`Identifier` column and ``timestamp`` is the :term:`Timestamp` column.
 
-The next step is to have NannyML deduce some information about the model from the dataset.
+The next step is to have NannyML deduce some information about the model from the dataset and make a choice about way we will split our data in :term:`Data Chunks<Data Chunk>`.
 
 .. code-block:: python
 
     >>> metadata = nml.extract_metadata(data = reference, model_name='wfh_predictor')
     >>> metadata.target_column_name = 'work_home_actual'
+    >>> data = pd.concat([reference, analysis], ignore_index=True)
+    >>> # Let's use a chunk size of 5000 data points to create our drift statistics
+    >>> chunk_size = 5000
 
 The data are already split into a reference and an analysis partition. NannyML uses the reference partition to
 establish a baseline for expected model performance and the analysis partition to check whether
@@ -85,10 +85,10 @@ without access to it's :term:`Target`. To find out how, see :ref:`performance-es
 
     >>> # fit estimator and estimate
     >>> estimator = nml.CBPE(model_metadata=metadata, chunk_size=chunk_size)
+    >>> estimator.fit(reference)
     >>> estimated_performance = estimator.estimate(data=data)
     >>> # show results
-    >>> plots = nml.PerformancePlots(model_metadata=metadata, chunker=estimator.chunker)
-    >>> figure = plots.plot_cbpe_performance_estimation(estimated_performance)
+    >>> figure = estimated_performance.plot(kind='performance')
     >>> figure.show()
 
 .. image:: ./_static/perf-est-guide-syth-example.svg
@@ -111,11 +111,9 @@ An example of using NannyML to compute and visualize data drift for the model in
     >>> univariate_calculator = nml.UnivariateStatisticalDriftCalculator(model_metadata=metadata, chunk_size=chunk_size)
     >>> univariate_calculator.fit(reference_data=reference)
     >>> univariate_results = univariate_calculator.calculate(data=data)
-    >>> # Let's initialize the plotting class:
-    >>> plots = nml.DriftPlots(model_metadata=univariate_calculator.model_metadata, chunker=univariate_calculator.chunker)
     >>> # let's plot drift results for all model inputs
     >>> for feature in metadata.features:
-    ...     figure = plots.plot_univariate_statistical_drift(univariate_results, metric='statistic', feature_label=feature.label)
+    ...     figure = univariate_results.plot(kind='feature_drift', metric='statistic', feature_label=feature.label)
     ...     figure.show()
 
 .. image:: ./_static/drift-guide-distance_from_office.svg
@@ -162,7 +160,7 @@ NannyML can also look for drift in the model outputs:
 
 .. code-block:: python
 
-    >>> figure = plots.plot_univariate_statistical_prediction_drift(drift_results=univariate_results, metric='statistic')
+    >>> figure = univariate_results.plot(kind='prediction_drift', metric='statistic')
     >>> figure.show()
 
 .. image:: ./_static/drift-guide-predictions.svg
@@ -179,7 +177,7 @@ see :ref:`Data Reconstruction with PCA Deep Dive<data-reconstruction-pca>`.
     >>> rcerror_calculator.fit(reference_data=reference)
     >>> # let's see Reconstruction error statistics for all available data
     >>> rcerror_results = rcerror_calculator.calculate(data=data)
-    >>> figure = plots.plot_data_reconstruction_drift(drift_results=rcerror_results)
+    >>> figure = rcerror_results.plot(kind='drift')
     >>> figure.show()
 
 .. image:: ./_static/drift-guide-multivariate.svg

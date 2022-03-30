@@ -129,9 +129,8 @@ drift statistics produces the following results:
     >>> univariate_results = univariate_calculator.calculate(data=data)
 
     >>> # let's create plot with results
-    >>> plots = nml.DriftPlots(model_metadata=univariate_calculator.model_metadata, chunker=univariate_calculator.chunker)
     >>> for feature in metadata.features:
-    ...     figure = plots.plot_univariate_statistical_drift(univariate_results, metric='statistic', feature_label=feature.label)
+    ...     figure = univariate_results.plot(kind='feature_drift', metric='statistic', feature_label=feature.label)
     ...     figure.show()
 
 .. image:: ../_static/butterfly-univariate-drift-f1.svg
@@ -143,9 +142,8 @@ drift statistics produces the following results:
 .. code-block:: python
 
     >>> for feature in metadata.continuous_features:
-    ...     figure = plots.plot_continuous_feature_distribution_over_time(
-    ...         data=data,
-    ...         drift_results=univariate_results,
+    ...     figure = univariate_results.plot(
+    ...         kind='feature_distribution',
     ...         feature_label=feature.label
     ...     )
     ...     figure.show()
@@ -168,9 +166,9 @@ is to use the Data Reconstruction with PCA. This method is able to capture
 complex changes in our data. The algorithm implementing Data Reconstruction with PCA
 works in three steps described below.
 
-The first step is data preparation and includes
-frequency encoding and scaling the data. Frequency encoding is used
-to convert all categorical features into numbers. The next thing we do
+The first step is data preparation and includes missing values :term:`Imputation`,
+frequency encoding and scaling the data. Missing values need to be imputed because using PCA requires it.
+Frequency encoding is used to convert all categorical features into numbers. The next thing to do
 is standardize all features to 0 mean and unit variance. This makes sure that all features
 contribute to PCA on equal footing.
 
@@ -231,7 +229,7 @@ what it does on the butterfly dataset.
     rcerror_results = rcerror_calculator.calculate(data=data)
 
     # let's create plot with results
-    figure = plots.plot_data_reconstruction_drift(rcerror_results)
+    figure = rcerror_results.plot()
     figure.show()
 
 

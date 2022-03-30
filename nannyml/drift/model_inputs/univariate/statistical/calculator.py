@@ -9,9 +9,11 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2_contingency, ks_2samp
 
-from nannyml.chunk import Chunk, Chunker
-from nannyml.drift._base import BaseDriftCalculator
-from nannyml.metadata import ModelMetadata
+from nannyml.chunk import Chunker
+from nannyml.drift.base import BaseDriftCalculator
+from nannyml.drift.model_inputs.univariate.statistical.results import UnivariateDriftResult
+from nannyml.exceptions import CalculatorNotFittedException, MissingMetadataException
+from nannyml.metadata import NML_METADATA_COLUMNS, ModelMetadata
 
 ALERT_THRESHOLD_P_VALUE = 0.05
 
@@ -53,6 +55,14 @@ class UnivariateStatisticalDriftCalculator(BaseDriftCalculator):
             model_metadata, features, chunk_size, chunk_number, chunk_period, chunker
         )
 
+        if model_metadata.predicted_probability_column_name is None:
+            raise MissingMetadataException(
+                "missing value for 'predicted_probability_column_name'. "
+                "Please update your model metadata accordingly."
+            )
+
+        self.selected_features = self.selected_features + [self.model_metadata.predicted_probability_column_name]
+
         self._reference_data = None
 
     def _fit(self, reference_data: pd.DataFrame):
@@ -60,13 +70,16 @@ class UnivariateStatisticalDriftCalculator(BaseDriftCalculator):
 
     def _calculate_drift(
         self,
-        chunks: List[Chunk],
-    ) -> pd.DataFrame:
+        data: pd.DataFrame,
+    ) -> UnivariateDriftResult:
         # Get lists of categorical <-> categorical features
         categorical_column_names = [f.column_name for f in self.model_metadata.categorical_features]
         continuous_column_names = [f.column_name for f in self.model_metadata.continuous_features] + [
-            self.model_metadata.prediction_column_name
+            self.model_metadata.predicted_probability_column_name
         ]
+
+        features_and_metadata = NML_METADATA_COLUMNS + self.selected_features
+        chunks = self.chunker.split(data, columns=features_and_metadata, minimum_chunk_size=500)
 
         chunk_drifts = []
         # Calculate chunk-wise drift statistics.
@@ -90,7 +103,7 @@ class UnivariateStatisticalDriftCalculator(BaseDriftCalculator):
                             chunk.data[column].value_counts(),
                         ],
                         axis=1,
-                    )
+                    ).fillna(0)
                 )
                 chunk_drift[f'{column}_chi2'] = statistic
                 chunk_drift[f'{column}_p_value'] = np.round(p_value, decimals=3)
@@ -110,4 +123,12 @@ class UnivariateStatisticalDriftCalculator(BaseDriftCalculator):
         res = pd.DataFrame.from_records(chunk_drifts)
         res = res.reset_index(drop=True)
         res.attrs['nml_drift_calculator'] = __name__
-        return res
+
+        if self.chunker is None:
+            raise CalculatorNotFittedException(
+                'chunker has not been set. '
+                'Please ensure you run ``calculator.fit()`` '
+                'before running ``calculator.calculate()``'
+            )
+
+        return UnivariateDriftResult(analysis_data=chunks, drift_data=res, model_metadata=self.model_metadata)

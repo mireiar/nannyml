@@ -71,7 +71,7 @@ instance/
 docs/_build/
 
 # PyBuilder
-target/
+./target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -116,6 +116,10 @@ site/
 # sphinx build artifacts
 docs/_build
 docs/nannyml
+
+# temp docs container artifacts
+docs/Dockerfile
+docs/index.html
 
 # images created from doc notebooks
 docs/notebooks/*.svg
