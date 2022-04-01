@@ -26,7 +26,7 @@ def _create_value_counts_table(
         top_categories = (
             value_counts_table[feature_column_name].value_counts().index.tolist()[:max_number_of_categories]
         )
-        if len(top_categories) > max_number_of_categories + 1:
+        if value_counts_table[feature_column_name].nunique() > max_number_of_categories + 1:
             value_counts_table.loc[
                 ~value_counts_table[feature_column_name].isin(top_categories), feature_column_name
             ] = 'Other'
@@ -283,7 +283,7 @@ def _stacked_bar_plot(
         chunk_type_labels = ['Reference', 'Analysis']
 
     if hue_legend_labels is None:
-        hue_legend_labels = ['Reference period', 'Analysis period', 'Period with probable data drift']
+        hue_legend_labels = ['Reference period', 'Analysis period', 'Period with data drift']
 
     if colors is None:
         colors = [Colors.BLUE_SKY_CRAYOLA, Colors.INDIGO_PERSIAN, Colors.GRAY_DARK, Colors.RED_IMPERIAL]
