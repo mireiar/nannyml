@@ -35,7 +35,9 @@ def _data_prep_step_plot(
     data['end_date_label'] = data[end_date_column_name].dt.strftime(hover_date_label_format)
 
     if partial_target_column_name and partial_target_column_name in data:
-        data['incomplete_target_percentage'] = (data[partial_target_column_name] * 100).astype(int)
+        data['incomplete_target_percentage'] = (data[partial_target_column_name] * 100).apply(
+            lambda p: format(p, '.2f')
+        )
     return data
 
 
@@ -65,7 +67,7 @@ def _step_plot(
     confidence_legend_label='Confidence band',
     threshold_legend_label='Data drift threshold',
     statistically_significant_legend_label='P-value is signficant',
-    drift_legend_label='Probable data drift',
+    drift_legend_label='Data drift',
     chunk_legend_labels=None,
     partial_target_legend_label='Incomplete target data',
     hover_marker_labels=None,

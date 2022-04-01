@@ -47,10 +47,12 @@ from .drift import (
     DriftCalculator,
     Ranker,
     Ranking,
+    TargetDistributionCalculator,
     UnivariateStatisticalDriftCalculator,
 )
 from .exceptions import ChunkerException, InvalidArgumentsException, MissingMetadataException
 from .metadata import Feature, FeatureType, ModelMetadata, extract_metadata
+from .performance_calculation import PerformanceCalculator
 from .performance_estimation import CBPE, BasePerformanceEstimator
 
 logger = logging.getLogger(__name__)
