@@ -7,10 +7,12 @@ from shutil import rmtree
 
 import pandas as pd
 
+from nannyml import PerformanceCalculator, CBPE
 from nannyml.chunk import Chunker
 from nannyml.drift.model_inputs.multivariate.data_reconstruction import DataReconstructionDriftCalculator
 from nannyml.drift.model_inputs.univariate.statistical import UnivariateStatisticalDriftCalculator
 from nannyml.metadata import ModelMetadata
+from nannyml.performance_estimation.base import PerformanceEstimator
 from nannyml.reporting.powerpoint_report import generate_report
 
 logger = logging.getLogger(__name__)
@@ -63,8 +65,31 @@ class Reporter:
             reconstruction_drift_calculator, reference_data, data, data_output_format, image_output_format
         )
 
+        cbpe = CBPE(
+            model_metadata=metadata,
+            chunk_size=chunk_size,
+            chunk_number=chunk_number,
+            chunk_period=chunk_period,
+            chunker=chunker
+        )
+        self._generate_performance_estimation_artifacts(
+            cbpe, reference_data, data, data_output_format, image_output_format
+        )
+
+        performance_calculator = PerformanceCalculator(
+            model_metadata=metadata,
+            metrics=['roc_auc'],
+            chunk_size=chunk_size,
+            chunk_number=chunk_number,
+            chunk_period=chunk_period,
+            chunker=chunker
+        )
+        self._generate_performance_calculation_artifacts(
+            performance_calculator, reference_data, data, data_output_format, image_output_format
+        )
+
         # create report output
-        generate_report(self.output_directory, metadata)
+        generate_report(self.output_directory, metadata, performance_calculator.metrics)
 
         return
 
@@ -163,3 +188,67 @@ class Reporter:
         results.plot(kind='drift', metric='statistic').write_image(
             image_output_directory / f'data_reconstruction_drift.{image_output_format}', engine="kaleido"
         )
+
+    def _generate_performance_estimation_artifacts(
+        self,
+        estimator: PerformanceEstimator,
+        reference_data: pd.DataFrame,
+        data: pd.DataFrame,
+        data_output_format: str,
+        image_output_format: str,
+    ):
+        logger.info("Running performance estimation")
+
+        output_directory = self.output_directory / 'performance_estimation' / 'CBPE'
+        output_directory.mkdir(parents=True)
+
+        data_output_directory = output_directory / 'data'
+        data_output_directory.mkdir(parents=True)
+
+        image_output_directory = output_directory / 'images'
+        image_output_directory.mkdir(parents=True)
+
+        estimator.fit(reference_data)
+        results = estimator.estimate(data)
+
+        if data_output_format == 'csv':
+            results.data.to_csv(data_output_directory / 'performance_estimation_cbpe.csv')
+        elif data_output_format == 'parquet':
+            results.data.to_parquet(data_output_directory / 'performance_eastimation_cbpe.pq')
+
+        results.plot(kind='performance').write_image(
+            image_output_directory / f'estimated_performance.{image_output_format}', engine="kaleido"
+        )
+
+    def _generate_performance_calculation_artifacts(
+        self,
+        calculator: PerformanceCalculator,
+        reference_data: pd.DataFrame,
+        data: pd.DataFrame,
+        data_output_format: str,
+        image_output_format: str,
+    ):
+        logger.info("Running performance calculation")
+
+        output_directory = self.output_directory / 'performance_calculation'
+        output_directory.mkdir(parents=True)
+
+        data_output_directory = output_directory / 'data'
+        data_output_directory.mkdir(parents=True)
+
+        image_output_directory = output_directory / 'images'
+        image_output_directory.mkdir(parents=True)
+
+        calculator.fit(reference_data)
+        results = calculator.calculate(data)
+
+        if data_output_format == 'csv':
+            results.data.to_csv(data_output_directory / 'performance_calculation.csv')
+        elif data_output_format == 'parquet':
+            results.data.to_parquet(data_output_directory / 'performance_calculation.pq')
+
+        for metric in calculator.metrics:
+            results.plot(kind='performance', metric=metric).write_image(
+                image_output_directory / f'realized_performance-{metric.display_name}.{image_output_format}',
+                engine="kaleido"
+            )
